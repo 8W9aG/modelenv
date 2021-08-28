@@ -1,6 +1,5 @@
 """The implementation of a pytorch model."""
 import enum
-import typing
 import sys
 
 import numpy as np
@@ -8,28 +7,61 @@ import torch.nn as nn
 
 from .model import Model
 from .constants import ACTION_PARAMETER_COUNT, LAYER_PARAMETER_COUNT
-from .norm import normalise, normalise_bool, denormalise, denormalise_bool
+from .norm import normalise, denormalise
 
 
 MAX_LAYER_TYPES = 200
 MAX_CHANNEL_MODIFIERS = 10
 MAX_KERNEL_SIZE_MODIFIERS = 20
-MAX_STRIDE_MODIFIERS = MAX_KERNEL_SIZE_MODIFIERS
-MAX_PADDING_MODIFIERS = MAX_STRIDE_MODIFIERS
-MAX_PADDING_MODE_MODIFIERS = MAX_PADDING_MODIFIERS
-MAX_DILATION_MODIFIERS = MAX_PADDING_MODIFIERS
-MAX_GROUP_MODIFIERS = 5
-PADDING_VALID = "valid"
-PADDING_SAME = "same"
-PADDING_MODE_ZEROS = "zeros"
-PADDING_MODE_REFLECT = "reflect"
-PADDING_MODE_REPLICATE = "replicate"
-PADDING_MODE_CIRCULAR = "circular"
+MAX_NORM_TYPE_MODIFIERS = 2
+MAX_PADDING_MODIFIERS = MAX_KERNEL_SIZE_MODIFIERS
 
 
 class TorchLayer(enum.IntEnum):
-    """The frameworks for generating a model."""
+    """The layers for generating a model."""
     Conv1D = 0
+    Conv2D = 1
+    Conv3D = 2
+    ConvTranspose1D = 3
+    ConvTranspose2D = 4
+    ConvTranspose3D = 5
+    Unfold = 6
+    Fold = 7
+    MaxPool1D = 8
+    MaxPool2D = 9
+    MaxPool3D = 10
+    MaxUnpool1D = 11
+    MaxUnpool2D = 12
+    MaxUnpool3D = 13
+    AvgPool1D = 14
+    AvgPool2D = 15
+    AvgPool3D = 16
+    FractionalMaxPool2D = 17
+    FractionalMaxPool3D = 18
+    LPPool1D = 19
+    LPPool2D = 20
+    AdaptiveMaxPool1D = 21
+    AdaptiveMaxPool2D = 22
+    AdaptiveMaxPool3D = 23
+    AdaptiveAvgPool1D = 24
+    AdaptiveAvgPool2D = 25
+    AdaptiveAvgPool3D = 26
+    ReflectionPad1D = 27
+    ReflectionPad2D = 28
+    ReplicationPad1D = 29
+    ReplicationPad2D = 30
+    ReplicationPad3D = 31
+    ZeroPad2D = 32
+    ConstantPad1D = 33
+    ConstantPad2D = 34
+    ConstantPad3D = 35
+    ELU = 36
+    HardShrink = 37
+    HardSigmoid = 38
+    HardTanh = 39
+    HardSwish = 40
+    LeakyReLU = 41
+    LogSigmoid = 42
 
 class ChannelModifiers(enum.IntEnum):
     """The modifiers to use on channels to a module."""
@@ -38,18 +70,6 @@ class ChannelModifiers(enum.IntEnum):
     Whole = 2
     Double = 3
     Quadruple = 4
-
-class PaddingModifiers(enum.IntEnum):
-    """The modifiers to use on paddings"""
-    Valid = 0
-    Same = 1
-
-class PaddingModeModifiers(enum.IntEnum):
-    """The modifiers to use on padding modes"""
-    Zeros = 0
-    Reflect = 1
-    Replicate = 2
-    Circular = 3
 
 def modify_channel(channels: int, channel_modifier: int) -> int:
     """Modify the channel"""
@@ -83,46 +103,6 @@ def channel_modification(input_channels: int, output_channels: int) -> ChannelMo
             best_modification = modifier
     return best_modification
 
-def padding_modifier_to_str(padding_modifier: int) -> typing.Optional[str]:
-    """Convert the padding modifiers to strings."""
-    if padding_modifier == PaddingModifiers.Valid:
-        return PADDING_VALID
-    if padding_modifier == PaddingModifiers.Same:
-        return PADDING_SAME
-    return None
-
-def padding_str_to_modifier(padding: str) -> PaddingModifiers:
-    """Convert the padding string to a padding modifier"""
-    if padding == PADDING_VALID:
-        return PaddingModifiers.Valid
-    if padding == PADDING_SAME:
-        return PaddingModifiers.Same
-    raise Exception("No valid padding str modifier")
-
-def padding_mode_modifier_to_str(padding_mode_modifier: int) -> typing.Optional[str]:
-    """Convert the padding mode modifier to a string."""
-    if padding_mode_modifier == PaddingModeModifiers.Zeros:
-        return PADDING_MODE_ZEROS
-    if padding_mode_modifier == PaddingModeModifiers.Reflect:
-        return PADDING_MODE_REFLECT
-    if padding_mode_modifier == PaddingModeModifiers.Replicate:
-        return PADDING_MODE_REPLICATE
-    if padding_mode_modifier == PaddingModeModifiers.Circular:
-        return PADDING_MODE_CIRCULAR
-    return None
-
-def padding_mode_str_to_modifier(padding_mode: str) -> PaddingModeModifiers:
-    """Conver thte padding mode string to a padding mode modifier"""
-    if padding_mode == PADDING_MODE_ZEROS:
-        return PaddingModeModifiers.Zeros
-    if padding_mode == PADDING_MODE_REFLECT:
-        return PaddingModeModifiers.Reflect
-    if padding_mode == PADDING_MODE_REPLICATE:
-        return PaddingModeModifiers.Replicate
-    if padding_mode == PADDING_MODE_CIRCULAR:
-        return PaddingModeModifiers.Circular
-    raise Exception("No valid padding mode str modifier")
-
 class TorchModel(Model):
     """A model backed by pytorch."""
     def __init__(self, action: np.array, example_data: np.array, example_output: np.array) -> None:
@@ -135,19 +115,307 @@ class TorchModel(Model):
         layer_type = normalise(layer[0], MAX_LAYER_TYPES)
         if self.network:
             del self.network[-1]
+        input_channels = len(self.example_data)
+        if self.network:
+            input_channels = self.network[-1].in_channels
         if layer_type == TorchLayer.Conv1D:
             self.network.add_module(
                 "conv1d-" + str(len(self.network) + 1),
                 nn.LazyConv1d(
-                    modify_channel(len(self.example_output), normalise(layer[1], MAX_CHANNEL_MODIFIERS)),
+                    modify_channel(input_channels, normalise(layer[1], MAX_CHANNEL_MODIFIERS)),
                     normalise(layer[2], MAX_KERNEL_SIZE_MODIFIERS) + 1,
-                    stride=normalise(layer[3], MAX_STRIDE_MODIFIERS),
-                    padding=padding_modifier_to_str(normalise(layer[4], MAX_PADDING_MODIFIERS)),
-                    padding_mode=padding_mode_modifier_to_str(normalise(layer[5], MAX_PADDING_MODE_MODIFIERS)),
-                    dilation=normalise(layer[6], MAX_DILATION_MODIFIERS),
-                    groups=normalise(layer[7], MAX_GROUP_MODIFIERS),
-                    bias=normalise_bool(layer[8]),
                 )
+            )
+        elif layer_type == TorchLayer.Conv2D:
+            self.network.add_module(
+                "conv2d-" + str(len(self.network) + 1),
+                nn.LazyConv2d(
+                    modify_channel(input_channels, normalise(layer[1], MAX_CHANNEL_MODIFIERS)),
+                    normalise(layer[2], MAX_KERNEL_SIZE_MODIFIERS) + 1,
+                )
+            )
+        elif layer_type == TorchLayer.Conv3D:
+            self.network.add_module(
+                "conv3d-" + str(len(self.network) + 1),
+                nn.LazyConv3d(
+                    modify_channel(input_channels, normalise(layer[1], MAX_CHANNEL_MODIFIERS)),
+                    normalise(layer[2], MAX_KERNEL_SIZE_MODIFIERS) + 1,
+                )
+            )
+        elif layer_type == TorchLayer.ConvTranspose1D:
+            self.network.add_module(
+                "convtranspose1d-" + str(len(self.network) + 1),
+                nn.LazyConvTranspose1d(
+                    modify_channel(input_channels, normalise(layer[1], MAX_CHANNEL_MODIFIERS)),
+                    normalise(layer[2], MAX_KERNEL_SIZE_MODIFIERS) + 1,
+                )
+            )
+        elif layer_type == TorchLayer.ConvTranspose2D:
+            self.network.add_module(
+                "convtranspose2d-" + str(len(self.network) + 1),
+                nn.LazyConvTranspose2d(
+                    modify_channel(input_channels, normalise(layer[1], MAX_CHANNEL_MODIFIERS)),
+                    normalise(layer[2], MAX_KERNEL_SIZE_MODIFIERS) + 1,
+                )
+            )
+        elif layer_type == TorchLayer.ConvTranspose3D:
+            self.network.add_module(
+                "convtranspose3d-" + str(len(self.network) + 1),
+                nn.LazyConvTranspose3d(
+                    modify_channel(input_channels, normalise(layer[1], MAX_CHANNEL_MODIFIERS)),
+                    normalise(layer[2], MAX_KERNEL_SIZE_MODIFIERS) + 1,
+                )
+            )
+        elif layer_type == TorchLayer.Unfold:
+            self.network.add_module(
+                "unfold-" + str(len(self.network) + 1),
+                nn.Unfold(
+                    normalise(layer[1], MAX_KERNEL_SIZE_MODIFIERS) + 1,
+                )
+            )
+        elif layer_type == TorchLayer.Fold:
+            self.network.add_module(
+                "fold-" + str(len(self.network) + 1),
+                nn.Fold(
+                    modify_channel(input_channels, normalise(layer[1], MAX_CHANNEL_MODIFIERS)),
+                    normalise(layer[2], MAX_KERNEL_SIZE_MODIFIERS) + 1,
+                )
+            )
+        elif layer_type == TorchLayer.MaxPool1D:
+            self.network.add_module(
+                "maxpool1d-" + str(len(self.network) + 1),
+                nn.MaxPool1d(
+                    normalise(layer[1], MAX_KERNEL_SIZE_MODIFIERS) + 1,
+                )
+            )
+        elif layer_type == TorchLayer.MaxPool2D:
+            self.network.add_module(
+                "maxpool2d-" + str(len(self.network) + 1),
+                nn.MaxPool2d(
+                    normalise(layer[1], MAX_KERNEL_SIZE_MODIFIERS) + 1,
+                )
+            )
+        elif layer_type == TorchLayer.MaxPool3D:
+            self.network.add_module(
+                "maxpool3d-" + str(len(self.network) + 1),
+                nn.MaxPool3d(
+                    normalise(layer[1], MAX_KERNEL_SIZE_MODIFIERS) + 1,
+                )
+            )
+        elif layer_type == TorchLayer.MaxUnpool1D:
+            self.network.add_module(
+                "maxunpool1d-" + str(len(self.network) + 1),
+                nn.MaxUnpool1d(
+                    normalise(layer[1], MAX_KERNEL_SIZE_MODIFIERS) + 1,
+                )
+            )
+        elif layer_type == TorchLayer.MaxUnpool2D:
+            self.network.add_module(
+                "maxunpool2d-" + str(len(self.network) + 1),
+                nn.MaxUnpool2d(
+                    normalise(layer[1], MAX_KERNEL_SIZE_MODIFIERS) + 1,
+                )
+            )
+        elif layer_type == TorchLayer.MaxUnpool3D:
+            self.network.add_module(
+                "maxunpool3d-" + str(len(self.network) + 1),
+                nn.MaxUnpool3d(
+                    normalise(layer[1], MAX_KERNEL_SIZE_MODIFIERS) + 1,
+                )
+            )
+        elif layer_type == TorchLayer.AvgPool1D:
+            self.network.add_module(
+                "avgpool1d-" + str(len(self.network) + 1),
+                nn.AvgPool1d(
+                    normalise(layer[1], MAX_KERNEL_SIZE_MODIFIERS) + 1,
+                )
+            )
+        elif layer_type == TorchLayer.AvgPool2D:
+            self.network.add_module(
+                "avgpool2d-" + str(len(self.network) + 1),
+                nn.AvgPool2d(
+                    normalise(layer[1], MAX_KERNEL_SIZE_MODIFIERS) + 1,
+                )
+            )
+        elif layer_type == TorchLayer.AvgPool3D:
+            self.network.add_module(
+                "avgpool3d-" + str(len(self.network) + 1),
+                nn.AvgPool3d(
+                    normalise(layer[1], MAX_KERNEL_SIZE_MODIFIERS) + 1,
+                )
+            )
+        elif layer_type == TorchLayer.FractionalMaxPool2D:
+            self.network.add_module(
+                "fractionalmaxpool2d-" + str(len(self.network) + 1),
+                nn.FractionalMaxPool2d(
+                    normalise(layer[1], MAX_KERNEL_SIZE_MODIFIERS) + 1,
+                )
+            )
+        elif layer_type == TorchLayer.FractionalMaxPool3D:
+            self.network.add_module(
+                "fractionalmaxpool3d-" + str(len(self.network) + 1),
+                nn.FractionalMaxPool3d(
+                    normalise(layer[1], MAX_KERNEL_SIZE_MODIFIERS) + 1,
+                )
+            )
+        elif layer_type == TorchLayer.LPPool1D:
+            self.network.add_module(
+                "lppool1d-" + str(len(self.network) + 1),
+                nn.LPPool1d(
+                    normalise(layer[1], MAX_NORM_TYPE_MODIFIERS) + 1,
+                    normalise(layer[2], MAX_KERNEL_SIZE_MODIFIERS) + 1,
+                )
+            )
+        elif layer_type == TorchLayer.LPPool2D:
+            self.network.add_module(
+                "lppool2d-" + str(len(self.network) + 1),
+                nn.LPPool2d(
+                    normalise(layer[1], MAX_NORM_TYPE_MODIFIERS) + 1,
+                    normalise(layer[2], MAX_KERNEL_SIZE_MODIFIERS) + 1,
+                )
+            )
+        elif layer_type == TorchLayer.AdaptiveMaxPool1D:
+            self.network.add_module(
+                "adaptivemaxpool1d-" + str(len(self.network) + 1),
+                nn.AdaptiveMaxPool1d(
+                    modify_channel(input_channels, normalise(layer[1], MAX_CHANNEL_MODIFIERS)),
+                )
+            )
+        elif layer_type == TorchLayer.AdaptiveMaxPool2D:
+            self.network.add_module(
+                "adaptivemaxpool2d-" + str(len(self.network) + 1),
+                nn.AdaptiveMaxPool2d(
+                    modify_channel(input_channels, normalise(layer[1], MAX_CHANNEL_MODIFIERS)),
+                )
+            )
+        elif layer_type == TorchLayer.AdaptiveMaxPool3D:
+            self.network.add_module(
+                "adaptivemaxpool3d-" + str(len(self.network) + 1),
+                nn.AdaptiveMaxPool3d(
+                    modify_channel(input_channels, normalise(layer[1], MAX_CHANNEL_MODIFIERS)),
+                )
+            )
+        elif layer_type == TorchLayer.AdaptiveAvgPool1D:
+            self.network.add_module(
+                "adaptiveavgpool1d-" + str(len(self.network) + 1),
+                nn.AdaptiveAvgPool1d(
+                    modify_channel(input_channels, normalise(layer[1], MAX_CHANNEL_MODIFIERS)),
+                )
+            )
+        elif layer_type == TorchLayer.AdaptiveAvgPool2D:
+            self.network.add_module(
+                "adaptiveavgpool2d-" + str(len(self.network) + 1),
+                nn.AdaptiveAvgPool2d(
+                    modify_channel(input_channels, normalise(layer[1], MAX_CHANNEL_MODIFIERS)),
+                )
+            )
+        elif layer_type == TorchLayer.AdaptiveAvgPool3D:
+            self.network.add_module(
+                "adaptiveavgpool3d-" + str(len(self.network) + 1),
+                nn.AdaptiveAvgPool3d(
+                    modify_channel(input_channels, normalise(layer[1], MAX_CHANNEL_MODIFIERS)),
+                )
+            )
+        elif layer_type == TorchLayer.ReflectionPad1D:
+            self.network.add_module(
+                "reflectionpad1d-" + str(len(self.network) + 1),
+                nn.ReflectionPad1d(
+                    normalise(layer[1], MAX_PADDING_MODIFIERS) + 1,
+                )
+            )
+        elif layer_type == TorchLayer.ReflectionPad2D:
+            self.network.add_module(
+                "reflectionpad2d-" + str(len(self.network) + 1),
+                nn.ReflectionPad2d(
+                    normalise(layer[1], MAX_PADDING_MODIFIERS) + 1,
+                )
+            )
+        elif layer_type == TorchLayer.ReplicationPad1D:
+            self.network.add_module(
+                "replicationpad1d-" + str(len(self.network) + 1),
+                nn.ReplicationPad1d(
+                    normalise(layer[1], MAX_PADDING_MODIFIERS) + 1,
+                )
+            )
+        elif layer_type == TorchLayer.ReplicationPad2D:
+            self.network.add_module(
+                "replicationpad2d-" + str(len(self.network) + 1),
+                nn.ReplicationPad2d(
+                    normalise(layer[1], MAX_PADDING_MODIFIERS) + 1,
+                )
+            )
+        elif layer_type == TorchLayer.ReplicationPad3D:
+            self.network.add_module(
+                "replicationpad3d-" + str(len(self.network) + 1),
+                nn.ReplicationPad3d(
+                    normalise(layer[1], MAX_PADDING_MODIFIERS) + 1,
+                )
+            )
+        elif layer_type == TorchLayer.ZeroPad2D:
+            self.network.add_module(
+                "zeropad2d-" + str(len(self.network) + 1),
+                nn.ZeroPad2d(
+                    normalise(layer[1], MAX_PADDING_MODIFIERS) + 1,
+                )
+            )
+        elif layer_type == TorchLayer.ConstantPad1D:
+            self.network.add_module(
+                "constantpad1d-" + str(len(self.network) + 1),
+                nn.ConstantPad1d(
+                    normalise(layer[1], MAX_PADDING_MODIFIERS) + 1,
+                    layer[2],
+                )
+            )
+        elif layer_type == TorchLayer.ConstantPad2D:
+            self.network.add_module(
+                "constantpad2d-" + str(len(self.network) + 1),
+                nn.ConstantPad2d(
+                    normalise(layer[1], MAX_PADDING_MODIFIERS) + 1,
+                    layer[2],
+                )
+            )
+        elif layer_type == TorchLayer.ConstantPad3D:
+            self.network.add_module(
+                "constantpad3d-" + str(len(self.network) + 1),
+                nn.ConstantPad3d(
+                    normalise(layer[1], MAX_PADDING_MODIFIERS) + 1,
+                    layer[2],
+                )
+            )
+        elif layer_type == TorchLayer.ELU:
+            self.network.add_module(
+                "elu-" + str(len(self.network) + 1),
+                nn.ELU()
+            )
+        elif layer_type == TorchLayer.HardShrink:
+            self.network.add_module(
+                "hardshrink-" + str(len(self.network) + 1),
+                nn.Hardshrink()
+            )
+        elif layer_type == TorchLayer.HardSigmoid:
+            self.network.add_module(
+                "hardsigmoid-" + str(len(self.network) + 1),
+                nn.Hardsigmoid()
+            )
+        elif layer_type == TorchLayer.HardTanh:
+            self.network.add_module(
+                "hardtanh-" + str(len(self.network) + 1),
+                nn.Hardtanh()
+            )
+        elif layer_type == TorchLayer.HardSwish:
+            self.network.add_module(
+                "hardswish-" + str(len(self.network) + 1),
+                nn.Hardswish()
+            )
+        elif layer_type == TorchLayer.LeakyReLU:
+            self.network.add_module(
+                "leakyrelu-" + str(len(self.network) + 1),
+                nn.LeakyReLU()
+            )
+        elif layer_type == TorchLayer.LogSigmoid:
+            self.network.add_module(
+                "logsigmoid-" + str(len(self.network) + 1),
+                nn.LogSigmoid()
             )
         # Add a linear layer to the end to force it to conform
         self.network.add_module("linear-end", nn.LazyLinear(len(self.example_output)))
@@ -166,11 +434,133 @@ class TorchModel(Model):
                 layer_state[0] = denormalise(TorchLayer.Conv1D, MAX_LAYER_TYPES)
                 layer_state[1] = denormalise(channel_modification(module.out_channels, output), MAX_CHANNEL_MODIFIERS)
                 layer_state[2] = denormalise(module.kernel_size - 1, MAX_KERNEL_SIZE_MODIFIERS)
-                layer_state[3] = denormalise(module.stride, MAX_STRIDE_MODIFIERS)
-                layer_state[4] = denormalise(padding_str_to_modifier(module.padding), MAX_PADDING_MODIFIERS)
-                layer_state[5] = denormalise(padding_mode_str_to_modifier(module.padding_mode), MAX_PADDING_MODE_MODIFIERS)
-                layer_state[6] = denormalise(module.dilation, MAX_DILATION_MODIFIERS)
-                layer_state[7] = denormalise(module.groups, MAX_GROUP_MODIFIERS)
-                layer_state[8] = denormalise_bool(module.bias)
+            elif isinstance(module, nn.LazyConv2d):
+                layer_state[0] = denormalise(TorchLayer.Conv2D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(channel_modification(module.out_channels, output), MAX_CHANNEL_MODIFIERS)
+                layer_state[2] = denormalise(module.kernel_size - 1, MAX_KERNEL_SIZE_MODIFIERS)
+            elif isinstance(module, nn.LazyConv3d):
+                layer_state[0] = denormalise(TorchLayer.Conv3D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(channel_modification(module.out_channels, output), MAX_CHANNEL_MODIFIERS)
+                layer_state[2] = denormalise(module.kernel_size - 1, MAX_KERNEL_SIZE_MODIFIERS)
+            elif isinstance(module, nn.LazyConvTranspose1d):
+                layer_state[0] = denormalise(TorchLayer.ConvTranspose1D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(channel_modification(module.out_channels, output), MAX_CHANNEL_MODIFIERS)
+                layer_state[2] = denormalise(module.kernel_size - 1, MAX_KERNEL_SIZE_MODIFIERS)
+            elif isinstance(module, nn.LazyConvTranspose2d):
+                layer_state[0] = denormalise(TorchLayer.ConvTranspose2D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(channel_modification(module.out_channels, output), MAX_CHANNEL_MODIFIERS)
+                layer_state[2] = denormalise(module.kernel_size - 1, MAX_KERNEL_SIZE_MODIFIERS)
+            elif isinstance(module, nn.LazyConvTranspose3d):
+                layer_state[0] = denormalise(TorchLayer.ConvTranspose3D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(channel_modification(module.out_channels, output), MAX_CHANNEL_MODIFIERS)
+                layer_state[2] = denormalise(module.kernel_size - 1, MAX_KERNEL_SIZE_MODIFIERS)
+            elif isinstance(module, nn.Unfold):
+                layer_state[0] = denormalise(TorchLayer.Unfold, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.kernel_size - 1, MAX_KERNEL_SIZE_MODIFIERS)
+            elif isinstance(module, nn.Fold):
+                layer_state[0] = denormalise(TorchLayer.Fold, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(channel_modification(module.out_channels, output), MAX_CHANNEL_MODIFIERS)
+                layer_state[2] = denormalise(module.kernel_size - 1, MAX_KERNEL_SIZE_MODIFIERS)
+            elif isinstance(module, nn.MaxPool1d):
+                layer_state[0] = denormalise(TorchLayer.MaxPool1D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.kernel_size - 1, MAX_KERNEL_SIZE_MODIFIERS)
+            elif isinstance(module, nn.MaxPool2d):
+                layer_state[0] = denormalise(TorchLayer.MaxPool2D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.kernel_size - 1, MAX_KERNEL_SIZE_MODIFIERS)
+            elif isinstance(module, nn.MaxPool3d):
+                layer_state[0] = denormalise(TorchLayer.MaxPool3D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.kernel_size - 1, MAX_KERNEL_SIZE_MODIFIERS)
+            elif isinstance(module, nn.MaxUnpool1d):
+                layer_state[0] = denormalise(TorchLayer.MaxUnpool1D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.kernel_size - 1, MAX_KERNEL_SIZE_MODIFIERS)
+            elif isinstance(module, nn.MaxUnpool2d):
+                layer_state[0] = denormalise(TorchLayer.MaxUnpool2D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.kernel_size - 1, MAX_KERNEL_SIZE_MODIFIERS)
+            elif isinstance(module, nn.MaxUnpool3d):
+                layer_state[0] = denormalise(TorchLayer.MaxUnpool3D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.kernel_size - 1, MAX_KERNEL_SIZE_MODIFIERS)
+            elif isinstance(module, nn.AvgPool1d):
+                layer_state[0] = denormalise(TorchLayer.AvgPool1D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.kernel_size - 1, MAX_KERNEL_SIZE_MODIFIERS)
+            elif isinstance(module, nn.AvgPool2d):
+                layer_state[0] = denormalise(TorchLayer.AvgPool2D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.kernel_size - 1, MAX_KERNEL_SIZE_MODIFIERS)
+            elif isinstance(module, nn.AvgPool3d):
+                layer_state[0] = denormalise(TorchLayer.AvgPool3D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.kernel_size - 1, MAX_KERNEL_SIZE_MODIFIERS)
+            elif isinstance(module, nn.FractionalMaxPool2d):
+                layer_state[0] = denormalise(TorchLayer.FractionalMaxPool2D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.kernel_size - 1, MAX_KERNEL_SIZE_MODIFIERS)
+            elif isinstance(module, nn.FractionalMaxPool3d):
+                layer_state[0] = denormalise(TorchLayer.FractionalMaxPool3D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.kernel_size - 1, MAX_KERNEL_SIZE_MODIFIERS)
+            elif isinstance(module, nn.LPPool1d):
+                layer_state[0] = denormalise(TorchLayer.LPPool1D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.norm_type - 1, MAX_NORM_TYPE_MODIFIERS) - 1
+            elif isinstance(module, nn.LPPool2d):
+                layer_state[0] = denormalise(TorchLayer.LPPool2D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.norm_type - 1, MAX_NORM_TYPE_MODIFIERS) - 1
+            elif isinstance(module, nn.AdaptiveMaxPool1d):
+                layer_state[0] = denormalise(TorchLayer.AdaptiveMaxPool1D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.kernel_size - 1, MAX_KERNEL_SIZE_MODIFIERS) - 1
+            elif isinstance(module, nn.AdaptiveMaxPool2d):
+                layer_state[0] = denormalise(TorchLayer.AdaptiveMaxPool2D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.kernel_size - 1, MAX_KERNEL_SIZE_MODIFIERS) - 1
+            elif isinstance(module, nn.AdaptiveMaxPool3d):
+                layer_state[0] = denormalise(TorchLayer.AdaptiveMaxPool3D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.kernel_size - 1, MAX_KERNEL_SIZE_MODIFIERS) - 1
+            elif isinstance(module, nn.AdaptiveAvgPool1d):
+                layer_state[0] = denormalise(TorchLayer.AdaptiveAvgPool1D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.kernel_size - 1, MAX_KERNEL_SIZE_MODIFIERS) - 1
+            elif isinstance(module, nn.AdaptiveAvgPool2d):
+                layer_state[0] = denormalise(TorchLayer.AdaptiveAvgPool2D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.kernel_size - 1, MAX_KERNEL_SIZE_MODIFIERS) - 1
+            elif isinstance(module, nn.AdaptiveAvgPool3d):
+                layer_state[0] = denormalise(TorchLayer.AdaptiveAvgPool3D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.kernel_size - 1, MAX_KERNEL_SIZE_MODIFIERS) - 1
+            elif isinstance(module, nn.ReflectionPad1d):
+                layer_state[0] = denormalise(TorchLayer.ReflectionPad1D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.padding - 1, MAX_PADDING_MODIFIERS) - 1
+            elif isinstance(module, nn.ReflectionPad2d):
+                layer_state[0] = denormalise(TorchLayer.ReflectionPad2D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.padding - 1, MAX_PADDING_MODIFIERS) - 1
+            elif isinstance(module, nn.ReplicationPad1d):
+                layer_state[0] = denormalise(TorchLayer.ReplicationPad1D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.padding - 1, MAX_PADDING_MODIFIERS) - 1
+            elif isinstance(module, nn.ReplicationPad2d):
+                layer_state[0] = denormalise(TorchLayer.ReplicationPad2D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.padding - 1, MAX_PADDING_MODIFIERS) - 1
+            elif isinstance(module, nn.ReplicationPad3d):
+                layer_state[0] = denormalise(TorchLayer.ReplicationPad3D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.padding - 1, MAX_PADDING_MODIFIERS) - 1
+            elif isinstance(module, nn.ZeroPad2d):
+                layer_state[0] = denormalise(TorchLayer.ZeroPad2D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.padding - 1, MAX_PADDING_MODIFIERS) - 1
+            elif isinstance(module, nn.ConstantPad1d):
+                layer_state[0] = denormalise(TorchLayer.ConstantPad1D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.padding - 1, MAX_PADDING_MODIFIERS) - 1
+                layer_state[2] = module.value
+            elif isinstance(module, nn.ConstantPad2d):
+                layer_state[0] = denormalise(TorchLayer.ConstantPad2D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.padding - 1, MAX_PADDING_MODIFIERS) - 1
+                layer_state[2] = module.value
+            elif isinstance(module, nn.ConstantPad3d):
+                layer_state[0] = denormalise(TorchLayer.ConstantPad3D, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.padding - 1, MAX_PADDING_MODIFIERS) - 1
+                layer_state[2] = module.value
+            elif isinstance(module, nn.ELU):
+                layer_state[0] = denormalise(TorchLayer.ELU, MAX_LAYER_TYPES)
+            elif isinstance(module, nn.Hardshrink):
+                layer_state[0] = denormalise(TorchLayer.HardShrink, MAX_LAYER_TYPES)
+            elif isinstance(module, nn.Hardsigmoid):
+                layer_state[0] = denormalise(TorchLayer.HardSigmoid, MAX_LAYER_TYPES)
+            elif isinstance(module, nn.Hardtanh):
+                layer_state[0] = denormalise(TorchLayer.HardTanh, MAX_LAYER_TYPES)
+            elif isinstance(module, nn.Hardswish):
+                layer_state[0] = denormalise(TorchLayer.HardSwish, MAX_LAYER_TYPES)
+            elif isinstance(module, nn.LeakyReLU):
+                layer_state[0] = denormalise(TorchLayer.LeakyReLU, MAX_LAYER_TYPES)
+            elif isinstance(module, nn.LogSigmoid):
+                layer_state[0] = denormalise(TorchLayer.LogSigmoid, MAX_LAYER_TYPES)
             network_state.extend(layer_state)
         return np.array(network_state)
