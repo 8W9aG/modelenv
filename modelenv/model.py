@@ -9,6 +9,7 @@ class ModelFramework(enum.IntEnum):
     Torch = 0
     Tensorflow = 1
     Scipy = 2
+    XGBoost = 3
 
 
 class Model:

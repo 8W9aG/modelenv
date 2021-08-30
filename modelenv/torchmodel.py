@@ -15,6 +15,7 @@ MAX_CHANNEL_MODIFIERS = 10
 MAX_KERNEL_SIZE_MODIFIERS = 20
 MAX_NORM_TYPE_MODIFIERS = 2
 MAX_PADDING_MODIFIERS = MAX_KERNEL_SIZE_MODIFIERS
+MAX_NUM_HEAD_MODIFIERS = 10
 
 
 class TorchLayer(enum.IntEnum):
@@ -62,6 +63,23 @@ class TorchLayer(enum.IntEnum):
     HardSwish = 40
     LeakyReLU = 41
     LogSigmoid = 42
+    MultiHeadAttention = 43
+    PReLU = 44
+    ReLU = 45
+    ReLU6 = 46
+    RReLU = 47
+    SELU = 48
+    CELU = 49
+    GELU = 50
+    Sigmoid = 51
+    SiLU = 52
+    Mish = 53
+    Softplus = 54
+    Softshrink = 55
+    Softsign = 56
+    Tanh = 57
+    Tanhshrink = 58
+    Threshold = 59
 
 class ChannelModifiers(enum.IntEnum):
     """The modifiers to use on channels to a module."""
@@ -70,6 +88,14 @@ class ChannelModifiers(enum.IntEnum):
     Whole = 2
     Double = 3
     Quadruple = 4
+
+class NumHeads(enum.IntEnum):
+    """The number of heads to use on an attention module."""
+    TwoHeads = 0
+    FourHeads = 1
+    SixHeads = 2
+    EightHeads = 3
+    TenHeads = 4
 
 def modify_channel(channels: int, channel_modifier: int) -> int:
     """Modify the channel"""
@@ -102,6 +128,31 @@ def channel_modification(input_channels: int, output_channels: int) -> ChannelMo
             best_modification_diff = diff
             best_modification = modifier
     return best_modification
+
+def num_head_modification(head_modifier: int) -> int:
+    """Perform the modification on num_heads."""
+    if head_modifier == NumHeads.TwoHeads:
+        return 2
+    if head_modifier == NumHeads.FourHeads:
+        return 4
+    if head_modifier == NumHeads.SixHeads:
+        return 6
+    if head_modifier == NumHeads.EightHeads:
+        return 8
+    if head_modifier == NumHeads.TenHeads:
+        return 10
+
+def denormalise_head_modification(num_heads: int) -> NumHeads:
+    if num_heads == 2:
+        return NumHeads.TwoHeads
+    if num_heads == 4:
+        return NumHeads.FourHeads
+    if num_heads == 6:
+        return NumHeads.SixHeads
+    if num_heads == 8:
+        return NumHeads.EightHeads
+    if num_heads == 10:
+        return NumHeads.TenHeads
 
 class TorchModel(Model):
     """A model backed by pytorch."""
@@ -417,6 +468,94 @@ class TorchModel(Model):
                 "logsigmoid-" + str(len(self.network) + 1),
                 nn.LogSigmoid()
             )
+        elif layer_type == TorchLayer.MultiHeadAttention:
+            self.network.add_module(
+                "multiheadattention-" + str(len(self.network) + 1),
+                nn.MultiheadAttention(
+                    input_channels,
+                    num_head_modification(normalise(layer[1], MAX_NUM_HEAD_MODIFIERS))
+                )
+            )
+        elif layer_type == TorchLayer.PReLU:
+            self.network.add_module(
+                "prelu-" + str(len(self.network) + 1),
+                nn.PReLU()
+            )
+        elif layer_type == TorchLayer.ReLU:
+            self.network.add_module(
+                "relu-" + str(len(self.network) + 1),
+                nn.ReLU()
+            )
+        elif layer_type == TorchLayer.ReLU6:
+            self.network.add_module(
+                "relu6-" + str(len(self.network) + 1),
+                nn.ReLU6()
+            )
+        elif layer_type == TorchLayer.RReLU:
+            self.network.add_module(
+                "rrelu-" + str(len(self.network) + 1),
+                nn.RReLU()
+            )
+        elif layer_type == TorchLayer.SELU:
+            self.network.add_module(
+                "selu-" + str(len(self.network) + 1),
+                nn.SELU()
+            )
+        elif layer_type == TorchLayer.CELU:
+            self.network.add_module(
+                "celu-" + str(len(self.network) + 1),
+                nn.CELU()
+            )
+        elif layer_type == TorchLayer.GELU:
+            self.network.add_module(
+                "gelu-" + str(len(self.network) + 1),
+                nn.GELU()
+            )
+        elif layer_type == TorchLayer.Sigmoid:
+            self.network.add_module(
+                "sigmoid-" + str(len(self.network) + 1),
+                nn.Sigmoid()
+            )
+        elif layer_type == TorchLayer.SiLU:
+            self.network.add_module(
+                "silu-" + str(len(self.network) + 1),
+                nn.SiLU()
+            )
+        elif layer_type == TorchLayer.Mish:
+            self.network.add_module(
+                "mish-" + str(len(self.network) + 1),
+                nn.Mish()
+            )
+        elif layer_type == TorchLayer.Softplus:
+            self.network.add_module(
+                "softplus-" + str(len(self.network) + 1),
+                nn.Softplus()
+            )
+        elif layer_type == TorchLayer.Softshrink:
+            self.network.add_module(
+                "softshrink-" + str(len(self.network) + 1),
+                nn.Softshrink()
+            )
+        elif layer_type == TorchLayer.Softsign:
+            self.network.add_module(
+                "softsign-" + str(len(self.network) + 1),
+                nn.Softsign()
+            )
+        elif layer_type == TorchLayer.Tanh:
+            self.network.add_module(
+                "tanh-" + str(len(self.network) + 1),
+                nn.Tanh()
+            )
+        elif layer_type == TorchLayer.Tanhshrink:
+            self.network.add_module(
+                "tanhshrink-" + str(len(self.network) + 1),
+                nn.Tanhshrink()
+            )
+        elif layer_type == TorchLayer.Threshold:
+            self.network.add_module(
+                "threshold-" + str(len(self.network) + 1),
+                nn.Threshold(layer[1], layer[2])
+            )
         # Add a linear layer to the end to force it to conform
         self.network.add_module("linear-end", nn.LazyLinear(len(self.example_output)))
 
@@ -562,5 +701,42 @@ class TorchModel(Model):
                 layer_state[0] = denormalise(TorchLayer.LeakyReLU, MAX_LAYER_TYPES)
             elif isinstance(module, nn.LogSigmoid):
                 layer_state[0] = denormalise(TorchLayer.LogSigmoid, MAX_LAYER_TYPES)
+            elif isinstance(module, nn.MultiheadAttention):
+                layer_state[0] = denormalise(TorchLayer.MultiHeadAttention, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(denormalise_head_modification(module.num_heads), MAX_NUM_HEAD_MODIFIERS)
+            elif isinstance(module, nn.PReLU):
+                layer_state[0] = denormalise(TorchLayer.PReLU, MAX_LAYER_TYPES)
+            elif isinstance(module, nn.ReLU):
+                layer_state[0] = denormalise(TorchLayer.ReLU, MAX_LAYER_TYPES)
+            elif isinstance(module, nn.ReLU6):
+                layer_state[0] = denormalise(TorchLayer.ReLU6, MAX_LAYER_TYPES)
+            elif isinstance(module, nn.RReLU):
+                layer_state[0] = denormalise(TorchLayer.RReLU, MAX_LAYER_TYPES)
+            elif isinstance(module, nn.SELU):
+                layer_state[0] = denormalise(TorchLayer.SELU, MAX_LAYER_TYPES)
+            elif isinstance(module, nn.CELU):
+                layer_state[0] = denormalise(TorchLayer.CELU, MAX_LAYER_TYPES)
+            elif isinstance(module, nn.GELU):
+                layer_state[0] = denormalise(TorchLayer.GELU, MAX_LAYER_TYPES)
+            elif isinstance(module, nn.Sigmoid):
+                layer_state[0] = denormalise(TorchLayer.Sigmoid, MAX_LAYER_TYPES)
+            elif isinstance(module, nn.SiLU):
+                layer_state[0] = denormalise(TorchLayer.SiLU, MAX_LAYER_TYPES)
+            elif isinstance(module, nn.Mish):
+                layer_state[0] = denormalise(TorchLayer.Mish, MAX_LAYER_TYPES)
+            elif isinstance(module, nn.Softplus):
+                layer_state[0] = denormalise(TorchLayer.Softplus, MAX_LAYER_TYPES)
+            elif isinstance(module, nn.Softshrink):
+                layer_state[0] = denormalise(TorchLayer.Softshrink, MAX_LAYER_TYPES)
+            elif isinstance(module, nn.Softsign):
+                layer_state[0] = denormalise(TorchLayer.Softsign, MAX_LAYER_TYPES)
+            elif isinstance(module, nn.Tanh):
+                layer_state[0] = denormalise(TorchLayer.Tanh, MAX_LAYER_TYPES)
+            elif isinstance(module, nn.Tanhshrink):
+                layer_state[0] = denormalise(TorchLayer.Tanhshrink, MAX_LAYER_TYPES)
+            elif isinstance(module, nn.Threshold):
+                layer_state[0] = denormalise(TorchLayer.Threshold, MAX_LAYER_TYPES)
+                layer_state[1] = module.threshold
+                layer_state[2] = module.value
             network_state.extend(layer_state)
         return np.array(network_state)
