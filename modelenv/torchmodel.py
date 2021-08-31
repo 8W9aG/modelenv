@@ -16,6 +16,7 @@ MAX_KERNEL_SIZE_MODIFIERS = 20
 MAX_NORM_TYPE_MODIFIERS = 2
 MAX_PADDING_MODIFIERS = MAX_KERNEL_SIZE_MODIFIERS
 MAX_NUM_HEAD_MODIFIERS = 10
+MAX_NUM_CLASSES = 10
 
 
 class TorchLayer(enum.IntEnum):
@@ -80,6 +81,11 @@ class TorchLayer(enum.IntEnum):
     Tanh = 57
     Tanhshrink = 58
     Threshold = 59
+    Softmin = 60
+    Softmax = 61
+    Softmax2D = 62
+    LogSoftmax = 63
+    AdaptiveLogSoftmaxWithLoss = 64
 
 class ChannelModifiers(enum.IntEnum):
     """The modifiers to use on channels to a module."""
@@ -556,6 +562,35 @@ class TorchModel(Model):
                 "threshold-" + str(len(self.network) + 1),
                 nn.Threshold(layer[1], layer[2])
             )
+        elif layer_type == TorchLayer.Softmin:
+            self.network.add_module(
+                "softmin-" + str(len(self.network) + 1),
+                nn.Softmin()
+            )
+        elif layer_type == TorchLayer.Softmax:
+            self.network.add_module(
+                "softmax-" + str(len(self.network) + 1),
+                nn.Softmax()
+            )
+        elif layer_type == TorchLayer.Softmax2D:
+            self.network.add_module(
+                "softmax2d-" + str(len(self.network) + 1),
+                nn.Softmax2d()
+            )
+        elif layer_type == TorchLayer.LogSoftmax:
+            self.network.add_module(
+                "logsoftmax-" + str(len(self.network) + 1),
+                nn.LogSoftmax()
+            )
+        elif layer_type == TorchLayer.AdaptiveLogSoftmaxWithLoss:
+            self.network.add_module(
+                "adaptivelogsoftmaxwithloss-" + str(len(self.network) + 1),
+                nn.AdaptiveLogSoftmaxWithLoss(
+                    input_channels,
+                    normalise(layer[1], MAX_NUM_CLASSES),
+                    [10],
+                )
+            )
         # Add a linear layer to the end to force it to conform
         self.network.add_module("linear-end", nn.LazyLinear(len(self.example_output)))
 
@@ -738,5 +773,16 @@ class TorchModel(Model):
                 layer_state[0] = denormalise(TorchLayer.Threshold, MAX_LAYER_TYPES)
                 layer_state[1] = module.threshold
                 layer_state[2] = module.value
+            elif isinstance(module, nn.Softmin):
+                layer_state[0] = denormalise(TorchLayer.Softmin, MAX_LAYER_TYPES)
+            elif isinstance(module, nn.Softmax):
+                layer_state[0] = denormalise(TorchLayer.Softmax, MAX_LAYER_TYPES)
+            elif isinstance(module, nn.Softmax2d):
+                layer_state[0] = denormalise(TorchLayer.Softmax2D, MAX_LAYER_TYPES)
+            elif isinstance(module, nn.LogSoftmax):
+                layer_state[0] = denormalise(TorchLayer.LogSoftmax, MAX_LAYER_TYPES)
+            elif isinstance(module, nn.AdaptiveLogSoftmaxWithLoss):
+                layer_state[0] = denormalise(TorchLayer.AdaptiveLogSoftmaxWithLoss, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.n_classes, MAX_NUM_CLASSES)
             network_state.extend(layer_state)
         return np.array(network_state)
