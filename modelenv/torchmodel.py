@@ -17,6 +17,9 @@ MAX_NORM_TYPE_MODIFIERS = 2
 MAX_PADDING_MODIFIERS = MAX_KERNEL_SIZE_MODIFIERS
 MAX_NUM_HEAD_MODIFIERS = 10
 MAX_NUM_CLASSES = 10
+MAX_GROUP_CHANNELS = 10
+MAX_NORMALISED_SHAPE = 10
+MAX_SIZE = 10
 
 
 class TorchLayer(enum.IntEnum):
@@ -86,6 +89,16 @@ class TorchLayer(enum.IntEnum):
     Softmax2D = 62
     LogSoftmax = 63
     AdaptiveLogSoftmaxWithLoss = 64
+    BatchNorm1D = 65
+    BatchNorm2D = 66
+    BatchNorm3D = 67
+    GroupNorm = 68
+    SyncBatchNorm = 69
+    InstanceNorm1D = 70
+    InstanceNorm2D = 71
+    InstanceNorm3D = 72
+    LayerNorm = 73
+    LocalResponseNorm = 74
 
 class ChannelModifiers(enum.IntEnum):
     """The modifiers to use on channels to a module."""
@@ -591,6 +604,59 @@ class TorchModel(Model):
                     [10],
                 )
             )
+        elif layer_type == TorchLayer.BatchNorm1D:
+            self.network.add_module(
+                "batchnorm1d-" + str(len(self.network) + 1),
+                nn.LazyBatchNorm1d()
+            )
+        elif layer_type == TorchLayer.BatchNorm2D:
+            self.network.add_module(
+                "batchnorm2d-" + str(len(self.network) + 1),
+                nn.LazyBatchNorm2d()
+            )
+        elif layer_type == TorchLayer.BatchNorm3D:
+            self.network.add_module(
+                "batchnorm3d-" + str(len(self.network) + 1),
+                nn.LazyBatchNorm3d()
+            )
+        elif layer_type == TorchLayer.GroupNorm:
+            self.network.add_module(
+                "groupnorm-" + str(len(self.network) + 1),
+                nn.GroupNorm(
+                    normalise(layer[1], MAX_GROUP_CHANNELS),
+                    input_channels,
+                )
+            )
+        elif layer_type == TorchLayer.SyncBatchNorm:
+            self.network.add_module(
+                "syncbatchnorm-" + str(len(self.network) + 1),
+                nn.SyncBatchNorm(input_channels)
+            )
+        elif layer_type == TorchLayer.InstanceNorm1D:
+            self.network.add_module(
+                "instancenorm1d-" + str(len(self.network) + 1),
+                nn.InstanceNorm1d(input_channels)
+            )
+        elif layer_type == TorchLayer.InstanceNorm2D:
+            self.network.add_module(
+                "instancenorm2d-" + str(len(self.network) + 1),
+                nn.InstanceNorm2d(input_channels)
+            )
+        elif layer_type == TorchLayer.InstanceNorm3D:
+            self.network.add_module(
+                "instancenorm3d-" + str(len(self.network) + 1),
+                nn.InstanceNorm3d(input_channels)
+            )
+        elif layer_type == TorchLayer.LayerNorm:
+            self.network.add_module(
+                "layernorm-" + str(len(self.network) + 1),
+                nn.LayerNorm(normalise(layer[1], MAX_NORMALISED_SHAPE))
+            )
+        elif layer_type == TorchLayer.LocalResponseNorm:
+            self.network.add_module(
+                "localresponsenorm-" + str(len(self.network) + 1),
+                nn.LayerNorm(normalise(layer[1], MAX_SIZE))
+            )
         # Add a linear layer to the end to force it to conform
         self.network.add_module("linear-end", nn.LazyLinear(len(self.example_output)))
 
@@ -784,5 +850,28 @@ class TorchModel(Model):
             elif isinstance(module, nn.AdaptiveLogSoftmaxWithLoss):
                 layer_state[0] = denormalise(TorchLayer.AdaptiveLogSoftmaxWithLoss, MAX_LAYER_TYPES)
                 layer_state[1] = denormalise(module.n_classes, MAX_NUM_CLASSES)
+            elif isinstance(module. nn.LazyBatchNorm1d):
+                layer_state[0] = denormalise(TorchLayer.BatchNorm1D, MAX_LAYER_TYPES)
+            elif isinstance(module. nn.LazyBatchNorm2d):
+                layer_state[0] = denormalise(TorchLayer.BatchNorm2D, MAX_LAYER_TYPES)
+            elif isinstance(module. nn.LazyBatchNorm3d):
+                layer_state[0] = denormalise(TorchLayer.BatchNorm3D, MAX_LAYER_TYPES)
+            elif isinstance(module, nn.GroupNorm):
+                layer_state[0] = denormalise(TorchLayer.GroupNorm, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.num_groups, MAX_GROUP_CHANNELS)
+            elif isinstance(module. nn.SyncBatchNorm):
+                layer_state[0] = denormalise(TorchLayer.SyncBatchNorm, MAX_LAYER_TYPES)
+            elif isinstance(module. nn.InstanceNorm1d):
+                layer_state[0] = denormalise(TorchLayer.InstanceNorm1D, MAX_LAYER_TYPES)
+            elif isinstance(module. nn.InstanceNorm2d):
+                layer_state[0] = denormalise(TorchLayer.InstanceNorm2D, MAX_LAYER_TYPES)
+            elif isinstance(module. nn.InstanceNorm3d):
+                layer_state[0] = denormalise(TorchLayer.InstanceNorm3D, MAX_LAYER_TYPES)
+            elif isinstance(module, nn.LayerNorm):
+                layer_state[0] = denormalise(TorchLayer.LayerNorm, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.normalized_shape, MAX_NORMALISED_SHAPE)
+            elif isinstance(module, nn.LocalResponseNorm):
+                layer_state[0] = denormalise(TorchLayer.LocalResponseNorm, MAX_LAYER_TYPES)
+                layer_state[1] = denormalise(module.size, MAX_SIZE)
             network_state.extend(layer_state)
         return np.array(network_state)
